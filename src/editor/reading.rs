@@ -52,6 +52,11 @@ impl Editor {
         cx.notify();
     }
 
+    /// Contents replaced from outside (飞书同步) become the ones 阅读模式 keeps.
+    pub fn accept_read_only_contents(&mut self) {
+        self.ro_doc = Some(self.core.doc.clone());
+    }
+
     /// Called for every `Changed` the editor emits: in reading mode an edited
     /// document goes back to the snapshot (folding and renaming are allowed,
     /// they are kept in the snapshot as they happen) and true is returned.

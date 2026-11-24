@@ -12,6 +12,7 @@ use gpui::{prelude::FluentBuilder, *};
 pub enum DocSub {
     Width,
     Download,
+    Feishu,
 }
 
 const MENU_W: f32 = 200.;
@@ -139,7 +140,11 @@ impl Workspace {
         // An open board isn't the page: no page width, find in its text or
         // editor shortcuts; a standalone board file has no Markdown or
         // references either
-        let (board, board_file) = self.editor.as_ref().map_or((false, false), |e| { let e = e.read(cx); (e.board_open(), e.board_file) });
+        let (board, board_file, table_file, is_md) = self.editor.as_ref().map_or((false, false, false, false), |e| {
+            let e = e.read(cx);
+            (e.board_open(), e.board_file, e.table_file, e.markdown)
+        });
+        let can_feishu = !board_file && !table_file && !is_md;
         let reading = self.reading();
         let sub = self.doc_sub;
         let hover_sub = |s: Option<DocSub>| {
@@ -236,6 +241,10 @@ impl Workspace {
                         }
                     })),
             ))
+            .when(can_feishu, |d| d.child(
+                menu_item("dm-feishu", "globe", crate::settings::tr("飞书同步", "Feishu sync"), true, sub == Some(DocSub::Feishu))
+                    .on_hover(hover_sub(Some(DocSub::Feishu))),
+            ))
             .child(divider())
             .when(crate::printing::SUPPORTED, |d| d.child(
                 menu_item("dm-print", "printer", crate::settings::text("打印"), false, false)
@@ -328,7 +337,11 @@ impl Workspace {
                         .into_any_element()
                 },
             )),
-            None => None,
+            Some(DocSub::Feishu) if can_feishu => Some((
+                item_top(8 - hidden.0 + usize::from(child), 3 - hidden.1) - PAD,
+                self.render_feishu_submenu(&id, cx).child(recorder()).into_any_element(),
+            )),
+            _ => None,
         };
         if let Some((top, el)) = sub_el {
             out.push(

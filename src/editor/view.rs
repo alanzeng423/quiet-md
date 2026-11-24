@@ -614,7 +614,7 @@ impl Editor {
     }
 
     /// Pointer edits to an independent target must not scroll to an old caret.
-    pub(super) fn changed_preserving_viewport(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub fn changed_preserving_viewport(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.changed_with_scroll(ScrollIntent::PreserveViewport, window, cx);
     }
 

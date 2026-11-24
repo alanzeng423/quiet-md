@@ -658,6 +658,42 @@ impl Core {
         self.dirty = true;
     }
 
+    /// Take `doc` as the new contents, as one undo step (飞书同步 bringing in
+    /// cloud edits). Remaps the caret to the closest matching block so live
+    /// background pulls keep the writer's place.
+    pub fn replace_document(&mut self, doc: Document) {
+        self.checkpoint(EditKind::Other);
+        let old_head = self.sel.head;
+        let old_units = self.units();
+        let old_ix = old_units.iter().position(|u| u.id == old_head.block);
+        let old_text = (old_head.block != TITLE).then(|| self.text_of(old_head.block).map(|t| t.text.clone())).flatten();
+        self.doc = doc;
+        self.ensure_non_empty();
+        self.block_sel = None;
+        self.cell_sel = None;
+        self.pending_marks = None;
+        let new_units = self.units();
+        let target_block = if old_head.block == TITLE {
+            TITLE
+        } else {
+            let ix = old_ix.unwrap_or(0);
+            old_text.as_deref()
+                .and_then(|t| new_units.iter().enumerate()
+                    .filter(|(_, u)| u.id != TITLE && self.text_of(u.id).is_some_and(|v| v.text == t))
+                    .min_by_key(|(j, _)| j.abs_diff(ix))
+                    .map(|(_, u)| u.id))
+                .or_else(|| new_units.get(ix).map(|u| u.id))
+                .or_else(|| new_units.last().map(|u| u.id))
+                .unwrap_or(TITLE)
+        };
+        let offset = self.text_of(target_block).map_or(0, |t| {
+            t.text.grapheme_indices(true).map(|(i, _)| i).chain(std::iter::once(t.text.len()))
+                .take_while(|i| *i <= old_head.offset).last().unwrap_or(0)
+        });
+        self.sel = Selection::caret(Pos::new(target_block, offset));
+        self.fix_selection();
+    }
+
     /// Put `doc` back outside the edit history (阅读模式 refusing an edit).
     pub fn restore(&mut self, doc: Document) {
         self.generation += 1;

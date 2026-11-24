@@ -158,6 +158,9 @@ pub struct Preferences {
     /// or a root that is gone, is the first open root (2.8).
     #[serde(default)]
     pub quick_note_root: String,
+    /// 飞书同步身份: "auto" (empty), "user", or "bot".
+    #[serde(default)]
+    pub feishu_identity: String,
 }
 
 /// A week between asks to move the library to real folders.
@@ -196,8 +199,13 @@ fn system_lang() -> Lang {
 impl Default for Preferences {
     fn default() -> Self {
         let lang = system_lang();
-        Preferences { theme: String::new(), feishu: true, english: lang != Lang::Zh, language: lang.code().into(), remote_images: true, quick_hotkey: true, auto_update: true, appearance: String::new(), seen_version: String::new(), motion: String::new(), new_default: String::new(), last_new: String::new(), search_engine: String::new(), start_home: false, browser: String::new(), opaque_window: false, ui_font: String::new(), ui_family: String::new(), doc_family: String::new(), doc_size: String::new(), migrate_later: 0, find_regex: false, backspace_to_title: true, cjk_spacing: false, font_favorites: vec![], recent_doc_fonts: vec![], recent_ui_fonts: vec![], quick_note_root: String::new() }
+        Preferences { theme: String::new(), feishu: true, english: lang != Lang::Zh, language: lang.code().into(), remote_images: true, quick_hotkey: true, auto_update: true, appearance: String::new(), seen_version: String::new(), motion: String::new(), new_default: String::new(), last_new: String::new(), search_engine: String::new(), start_home: false, browser: String::new(), opaque_window: false, ui_font: String::new(), ui_family: String::new(), doc_family: String::new(), doc_size: String::new(), migrate_later: 0, find_regex: false, backspace_to_title: true, cjk_spacing: false, font_favorites: vec![], recent_doc_fonts: vec![], recent_ui_fonts: vec![], quick_note_root: String::new(), feishu_identity: String::new() }
     }
+}
+
+/// Configured Feishu / Lark CLI identity ("auto", "user", or "bot").
+pub fn feishu_identity() -> fdl_core::feishu::Identity {
+    fdl_core::feishu::Identity::from_pref(&prefs().feishu_identity)
 }
 
 impl Preferences {

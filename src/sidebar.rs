@@ -712,6 +712,10 @@ impl Workspace {
                 })
             })
             .child(title)
+            .when(!renaming && !folder, |d| {
+                let target = note.unwrap_or(&e.id);
+                d.children(self.render_feishu_sidebar_mark(target))
+            })
             // A folder's "…", "new folder" and "+" sit in the same columns as the header's
             // 批量操作, 新建文件夹 and 新建文档.
             .when(float, |d| {

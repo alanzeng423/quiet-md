@@ -35,6 +35,7 @@ mod design;
 mod docinfo;
 mod docmenu;
 mod editor;
+mod feishu;
 mod highlight;
 mod history;
 mod home;

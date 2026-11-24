@@ -171,7 +171,7 @@ impl Workspace {
         let folder_parent = parent.clone();
         // each kind its own solid, coloured mark (assets/illus/kinds), so a glance tells them apart
         let row = |id: &'static str, kind: &'static str, label: &'static str| crate::design::MenuItem::new(id).leading(img(format!("illus/kinds/{kind}.svg")).flex_none().size(px(18.))).label(label);
-        let (doc_parent, md_parent, board_parent, table_parent) = (parent.clone(), parent.clone(), parent.clone(), parent.clone());
+        let (doc_parent, md_parent, board_parent, table_parent, feishu_parent) = (parent.clone(), parent.clone(), parent.clone(), parent.clone(), parent.clone());
         Some(deferred(anchored().anchor(Anchor::TopLeft).position(pos).snap_to_window_with_margin(px(8.)).child(
             crate::design::Popover::new("create-items").menu().min_w(px(180.))
                 .on_mouse_down_out(cx.listener(|w, _, _, cx| { w.create_menu = None; cx.notify(); }))
@@ -180,6 +180,9 @@ impl Workspace {
                 .child(row("create-board", "board", crate::settings::text("画板")).on_click(cx.listener(move |w, _, window, cx| w.create_board(board_parent.clone(), window, cx))))
                 .when(crate::DATATABLE, |d| d.child(row("create-table", "datatable", crate::settings::text("数据表")).on_click(cx.listener(move |w, _, window, cx| w.create_table(table_parent.clone(), window, cx)))))
                 .child(row("create-folder", "folder", tr("文件夹", "Folder")).on_click(cx.listener(move |w, _, window, cx| w.new_folder(folder_parent.clone(), window, cx))))
+                .child(crate::design::MenuSeparator::new())
+                .child(crate::design::MenuItem::new("create-feishu").icon("globe").label(tr("从飞书链接导入…", "Import from Feishu…"))
+                    .on_click(cx.listener(move |w, _, window, cx| w.open_feishu_import(feishu_parent.clone(), window, cx))))
         )).with_priority(3).into_any_element())
     }
 

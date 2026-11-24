@@ -23,7 +23,7 @@ const MARKDOWN_EXTS: [&str; 4] = ["md", "markdown", "mark", "txt"];
 
 /// What the header's 导入 menu picks.
 #[derive(Clone, Copy)]
-pub(crate) enum ImportKind { Markdown, Folder, DocxXml, Csv }
+pub(crate) enum ImportKind { Markdown, Folder, DocxXml, Csv, Feishu }
 
 /// 导入文件夹 refuses folders with more documents than this.
 pub(crate) const IMPORT_FOLDER_LIMIT: usize = 2000;
@@ -510,6 +510,10 @@ impl Workspace {
     /// The header's 导入 menu (主页, a folder's page): what it imports goes
     /// into the folder shown, or the top of 我的文档.
     pub(crate) fn open_import_kind(&mut self, kind: ImportKind, parent: Option<String>, window: &mut Window, cx: &mut Context<Self>) {
+        if matches!(kind, ImportKind::Feishu) {
+            self.open_feishu_import(parent, window, cx);
+            return;
+        }
         self.close_menus();
         self.import_menu = None;
         cx.notify();
@@ -519,6 +523,7 @@ impl Workspace {
             ImportKind::Folder => (true, &[]),
             ImportKind::DocxXml => (false, &["xml"]),
             ImportKind::Csv => (false, &["csv", "tsv"]),
+            ImportKind::Feishu => unreachable!(),
         };
         let options = PathPromptOptions {
             files: !folders, directories: folders, multiple: !folders, prompt: Some(crate::settings::text("导入").into()),
@@ -553,6 +558,7 @@ impl Workspace {
                 .child(item("import-md", "doc-md", crate::settings::tr("导入 Markdown 文件…", "Import Markdown Files…"), ImportKind::Markdown))
                 .child(item("import-folder", "folder", crate::settings::tr("导入文件夹…", "Import Folder…"), ImportKind::Folder))
                 .child(item("import-xml", "doc", crate::settings::tr("导入 DocxXML…", "Import DocxXML…"), ImportKind::DocxXml))
+                .child(item("import-feishu", "globe", crate::settings::tr("从飞书链接导入…", "Import from Feishu link…"), ImportKind::Feishu))
                 .when(crate::DATATABLE, |d| d.child(item("import-csv", "datatable", crate::settings::tr("从 CSV 新建数据表…", "New Data Table from CSV…"), ImportKind::Csv))),
         )).with_priority(3).into_any_element())
     }

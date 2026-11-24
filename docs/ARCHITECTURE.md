@@ -124,6 +124,7 @@ Whiteboard and history modules in core:
 | `versions.rs` | Directory-indexed document snapshots, throttling, quotas and trash integration |
 | `diff.rs` / `changes.rs` | Dependency-free line LCS and block-level LCS for snapshot highlighting |
 | `merge.rs` | Three-way merge of two versions of a document by block, for sync (docs/design/sync.md §3.2); not wired into the app yet |
+| `feishu/` | Feishu / Lark real-time bidirectional sync engine: link parsing, DocxXML normalization, `merge3` wrapper, minimal incremental block push planner (preserving Feishu comments), per-root sync state, and `FeishuTransport` trait (`LarkCliTransport`) |
 
 ### Application (`src/`)
 
@@ -138,6 +139,7 @@ Whiteboard and history modules in core:
 | `home.rs` / `trash.rs` | Home and trash |
 | `search.rs` | Search dialog and advanced search |
 | `docmenu.rs` / `docinfo.rs` / `modes.rs` | More menu, document information, edit/read mode switch and shortcut panel |
+| `feishu.rs` | Feishu real-time bidirectional sync coordinator: debounced auto-push, lightweight revision polling, header status pill + popover, conflict/blocker banner, import/link dialog, sidebar badge |
 | `theme.rs` | `craft` scale, semantic `Theme::*` colors, named display colors, `shadow_*`, type scale and note panel dimensions |
 | `design/` | Quiet.md's design system (shadcn/ui: Nova's colours, Vega's geometry). `mod.rs` holds the tokens (neutral ramp, semantic colours with light and dark values, option colours, radii, sizes, type, shadows); `button`, `menu`, `field`, `control`, `badge`, `dialog`, `card` the components, all shown live in the 组件库 panel (`gallery/`, `quiet_md --components`). Used across the app's controls, menus and dialogs (`table/style.rs` forwards to it for the 数据表) |
 | `ui.rs` / `input.rs` | Shared menu shells and rows, white pill buttons, hints, toasts and single-line input |

@@ -23,7 +23,7 @@ use web_time::Instant;
 const SAVE_DELAY: Duration = Duration::from_millis(500);
 const SAVE_MAX_DELAY: Duration = Duration::from_secs(2);
 
-actions!(workspace, [NewDoc, OpenFile, OpenFolder, ImportDoc, ImportFolder, ToggleSidebar, FocusSearch, FindInDoc, ReplaceInDoc, OpenSettings, OpenAbout, CheckForUpdates, GoHome, CloseWindow, Quit,
+actions!(workspace, [NewDoc, OpenFile, OpenFolder, ImportDoc, ImportFolder, ImportFeishu, ToggleSidebar, FocusSearch, FindInDoc, ReplaceInDoc, OpenSettings, OpenAbout, CheckForUpdates, GoHome, CloseWindow, Quit,
     ReplayOnboarding, HideApp, HideOthers, ShowAll, Minimize, Zoom, ToggleFullScreen, ToggleDarkMode]);
 // A confirmation dialog's keys, in its own key context: ↩ is the action button, Esc 取消.
 actions!(confirm, [ConfirmOk, ConfirmCancel]);
@@ -73,6 +73,7 @@ fn menu_bar(markdown: bool) -> Vec<Menu> {
                 MenuItem::action(tr("打开文件夹…", "Open Folder…"), OpenFolder),
                 MenuItem::action(tr("导入为文档…", "Import as Document…"), ImportDoc),
                 MenuItem::action(tr("导入文件夹…", "Import Folder…"), ImportFolder),
+                MenuItem::action(tr("从飞书链接导入…", "Import from Feishu…"), ImportFeishu),
                 MenuItem::separator(),
                 MenuItem::action(tr("关闭窗口", "Close Window"), CloseWindow),
             ],
@@ -214,15 +215,16 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("ctrl-cmd-f", ToggleFullScreen, None),
         // ⌥⌘D is the system's Dock hiding; ⌃⌘D is free in the app (Cocoa's 查询 doesn't reach GPUI)
         KeyBinding::new("ctrl-cmd-d", ToggleDarkMode, None),
+        KeyBinding::new("cmd-alt-i", ImportFeishu, None),
     ]);
     // Windows: F11 for full screen, and Ctrl+H for 查找和替换 as in Office
     // and Notepad (written cmd-h: `shortcuts::pc_binding` maps cmd to
     // ctrl and drops a literal ctrl-h, Cocoa's backspace).
     #[cfg(not(target_os = "macos"))]
     cx.bind_keys([KeyBinding::new("f11", ToggleFullScreen, None), KeyBinding::new("cmd-h", ReplaceInDoc, None)]);
-    // Ctrl+Shift+D there (written cmd-shift-d, mapped by `pc_binding`): Ctrl+Alt reads as AltGr on Windows (#290).
+    // Ctrl+Shift+D / Ctrl+Shift+F there (written cmd-shift-*, mapped by `pc_binding`): Ctrl+Alt reads as AltGr on Windows (#290).
     #[cfg(not(target_os = "macos"))]
-    cx.bind_keys([KeyBinding::new("cmd-shift-d", ToggleDarkMode, None)]);
+    cx.bind_keys([KeyBinding::new("cmd-shift-d", ToggleDarkMode, None), KeyBinding::new("cmd-shift-f", ImportFeishu, None)]);
     cx.on_action(|_: &HideApp, cx| cx.hide());
     cx.on_action(|_: &HideOthers, cx| cx.hide_other_apps());
     cx.on_action(|_: &ShowAll, cx| cx.unhide_other_apps());
@@ -463,6 +465,8 @@ pub struct Workspace {
     pub move_dlg: Option<crate::tree::MoveDialog>,
     /// 导出 Markdown 设置.
     pub export_md: Option<crate::transfer::ExportMd>,
+    /// 飞书实时双向同步 coordinator & UI state.
+    pub feishu: crate::feishu::FeishuState,
     /// 编辑 / 阅读 dropdown, and the mode button's last-frame bounds.
     pub mode_menu: bool,
     pub mode_btn_bounds: Rc<Cell<Option<Bounds<Pixels>>>>,
@@ -555,9 +559,14 @@ impl Workspace {
                     // puts its own back (its pasted images, its look).
                     if let Some(id) = this.current.clone().or_else(|| this.folder_current.clone()) && this.store.set_active(&id) { cx.defer(crate::settings::root_switched); }
                     if !this.store.file_task_busy() { this.entries = this.store.list(); this.sort(); this.refresh_markdown(Some(window.window_handle().window_id()), cx); }
+                    if let Some(id) = this.current.clone() { this.feishu_probe_and_pull(&id, window, cx); }
                     crate::update::check_if_stale(cx); cx.notify();
                 }
-                else if !this.store.file_task_busy() { this.cancel_home_drag(cx); this.end_folder_drag(true, cx); this.cancel_shortcut_recording(cx); this.flush(cx); }
+                else if !this.store.file_task_busy() {
+                    this.cancel_home_drag(cx); this.end_folder_drag(true, cx); this.cancel_shortcut_recording(cx);
+                    let cur = this.current.clone();
+                    if this.flush(cx) && let Some(id) = cur { this.feishu_flush_pending(&id, window, cx); }
+                }
             }),
             cx.subscribe_in(&search, window, |this, _, ev: &TextFieldEvent, window, cx| {
                 match ev {
@@ -727,6 +736,7 @@ impl Workspace {
             sidebar_drop: None,
             move_dlg: None,
             export_md: None,
+            feishu: Default::default(),
             focus: cx.focus_handle(),
             save_task: None,
             view_state_task: None,
@@ -738,6 +748,8 @@ impl Workspace {
         };
         ws.sort();
         ws.load_home();
+        ws.refresh_feishu_links();
+        ws.spawn_feishu_poller(window, cx);
         // An empty library opens on 主页's empty state; only a quick note
         // window starts a document of its own. The main window returns to the
         // document read last (#234), or the home page when that is set; the
@@ -809,6 +821,9 @@ impl Workspace {
         }) {
             return false;
         }
+        if let Some(prev) = self.current.clone() {
+            self.feishu_flush_pending(&prev, window, cx);
+        }
         // 版本历史 of a 数据表 (written as it is edited): the file as it is left and as it is
         // opened is kept as a version; a file unchanged since the newest version adds nothing
         let table = |w: &Self, i: &str| w.entries.iter().any(|e| e.id == i && e.meta.kind == crate::store::DocKind::Table);
@@ -867,7 +882,12 @@ impl Workspace {
                 cx.notify();
             }
             EditorEvent::Save => {
+                let id = this.current.clone();
                 if !this.flush(cx) { this.confirm = Some(Confirm::SaveFailed); cx.notify(); }
+                else if let Some(id) = id {
+                    this.feishu_on_saved(&id, window, cx);
+                    this.feishu_flush_pending(&id, window, cx);
+                }
             }
             EditorEvent::Search(q) => {
                 this.open_search(window, cx);
@@ -931,6 +951,8 @@ impl Workspace {
         self.doc_menu = false;
         self.doc_sub = None;
         self.mode_menu = false;
+        self.feishu.status_menu = false;
+        self.feishu_probe_and_pull(id, window, cx);
         cx.notify();
         true
     }
@@ -1308,7 +1330,12 @@ impl Workspace {
             while this.update(cx, |w, _| w.store.file_task_busy()).unwrap_or(false) {
                 cx.background_executor().timer(Duration::from_millis(50)).await;
             }
-            let _ = this.update(cx, |w, cx| w.flush(cx));
+            let _ = this.update_in(cx, |w, window, cx| {
+                let id = w.current.clone();
+                if w.flush(cx) && let Some(id) = id {
+                    w.feishu_on_saved(&id, window, cx);
+                }
+            });
         }));
         cx.notify();
     }
@@ -1850,6 +1877,7 @@ impl Workspace {
                     )),
             )
             .child(div().flex_1().min_w(px(16.)))
+            .children(self.render_feishu_status_pill(cx).map(|p| div().mr(px(6.)).flex_none().child(p)))
             .child(
                 div().gap(px(4.))
                     .h(px(HEADER_ACTIONS_H)).flex_none()
@@ -1954,6 +1982,7 @@ impl Render for Workspace {
         let place_menu = self.render_place_menu(cx);
         let search = self.render_search(window, cx);
         let doc_menu = self.render_doc_menu(window, cx);
+        let feishu_status_menu = self.render_feishu_status_menu(window, cx);
         let doc_info = self.render_doc_info(cx);
         let history = self.render_history(cx);
         // a dialog holds the keyboard while open (Esc and ↩ go to it, not to the editor behind)
@@ -1977,6 +2006,7 @@ impl Render for Workspace {
                 .flex_col()
                 .child(self.top_bar(f32::from(window.viewport_size().width) - if self.sidebar_open { self.sidebar_w(window) } else { 0. }, cx))
                 .children(self.render_history_banner(cx))
+                .children(self.render_feishu_banner(cx))
                 .child(
                     div()
                         .flex_1()
@@ -2000,6 +2030,7 @@ impl Render for Workspace {
         };
         let move_dlg = self.render_move_dialog(cx);
         let export_md = self.render_export_md(cx);
+        let feishu_dlg = self.render_feishu_dialog(window, cx);
         // Only the note stands out: a white plane flush with the window's top,
         // right and bottom edges. The sidebar sits sunken on the window
         // surface beside it; a faint shade along the plane's left edge parts
@@ -2054,6 +2085,7 @@ impl Render for Workspace {
             .on_action(cx.listener(|w, _: &OpenFile, window, cx| w.open_file_dialog(window, cx)))
             .on_action(cx.listener(|w, _: &OpenFolder, window, cx| w.open_folder_dialog(window, cx)))
             .on_action(cx.listener(|w, _: &ImportFolder, window, cx| w.open_import_folder(window, cx)))
+            .on_action(cx.listener(|w, _: &ImportFeishu, window, cx| w.open_feishu_import(w.creation_parent(), window, cx)))
             .on_action(cx.listener(|w, _: &ToggleSidebar, _, cx| {
                 w.sidebar_open = !w.sidebar_open;
                 cx.notify();
@@ -2082,12 +2114,13 @@ impl Render for Workspace {
                     cx.stop_propagation();
                     return;
                 }
-                if ev.keystroke.key == "escape" && (w.doc_info.is_some() || w.history.is_some() || w.doc_menu || w.mode_menu) {
+                if ev.keystroke.key == "escape" && (w.doc_info.is_some() || w.history.is_some() || w.doc_menu || w.mode_menu || w.feishu.status_menu) {
                     w.doc_info = None;
                     if w.history.is_some() { w.close_history(cx); }
                     w.mode_menu = false;
                     w.doc_menu = false;
                     w.doc_sub = None;
+                    w.feishu.status_menu = false;
                     cx.stop_propagation();
                     cx.notify();
                 }
@@ -2118,10 +2151,13 @@ impl Render for Workspace {
                 }
                 if w.record_shortcut(ev, cx) { return; }
                 // Esc cancels a confirmation dialog.
-                if ev.keystroke.key == "escape" && (w.confirm.is_some() || w.export_md.is_some()) {
+                if ev.keystroke.key == "escape" && (w.confirm.is_some() || w.export_md.is_some() || w.feishu.dlg.as_ref().is_some_and(|d| !d.busy)) {
                     w.confirm = None;
                     w.after_save = None;
                     w.export_md = None;
+                    if w.feishu.dlg.as_ref().is_some_and(|d| !d.busy) {
+                        w.feishu.dlg = None;
+                    }
                     cx.stop_propagation();
                     cx.notify();
                     return;
@@ -2147,6 +2183,7 @@ impl Render for Workspace {
             .children(crate::ui::window_controls(window))
             .children(row_menu)
             .children(doc_menu)
+            .children(feishu_status_menu)
             .children(mode_menu)
             .children(doc_info)
             .children(trash_menu)
@@ -2158,6 +2195,7 @@ impl Render for Workspace {
             .children(confirm)
             .children(move_dlg)
             .children(export_md)
+            .children(feishu_dlg)
             .children(search)
             .children(resize_overlay)
             .children(folder_drag_overlay)

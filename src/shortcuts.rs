@@ -220,6 +220,7 @@ fn info(name: &str) -> Option<(usize, &'static str, &'static str)> {
         "OpenFile" => (1, "打开 Markdown 文件", "Open Markdown file"),
         "OpenFolder" => (1, "打开文件夹", "Open folder"),
         "ImportDoc" => (1, "导入文档", "Import documents"),
+        "ImportFeishu" => (1, "从飞书链接导入", "Import from Feishu"),
         "Save" => (1, "保存文档", "Save document"),
         "EditMode" => (1, "编辑模式", "Edit mode"),
         "ReadMode" => (1, "阅读模式", "Reading mode"),

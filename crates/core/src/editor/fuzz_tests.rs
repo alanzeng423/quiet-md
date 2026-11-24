@@ -121,7 +121,7 @@ fn step(c: &mut Core, rng: &mut Rng) -> String {
     }
     let us = c.units();
     let any = |rng: &mut Rng| rng.pick(&us).id;
-    match rng.below(26) {
+    match rng.below(27) {
         0..=2 => {
             let s = *rng.pick(TEXTS);
             c.insert_text(s);
@@ -263,6 +263,16 @@ fn step(c: &mut Core, rng: &mut Rng) -> String {
             }
             random_selection(c, rng);
             format!("equation_on_leave({d:?}) = {}", c.equation_on_leave())
+        }
+        26 if rng.chance(15) => {
+            // 飞书同步: the document comes back re-parsed, possibly with a block removed.
+            let mut d = crate::docxml::parse(&crate::docxml::serialize(&c.doc)).unwrap();
+            if !d.blocks.is_empty() && rng.chance(50) {
+                let i = rng.below(d.blocks.len());
+                d.blocks.remove(i);
+            }
+            c.replace_document(d);
+            "replace_document".into()
         }
         _ => {
             c.trailing_line();
