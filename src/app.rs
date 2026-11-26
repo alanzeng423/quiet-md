@@ -1798,7 +1798,7 @@ impl Workspace {
         // and the title keeps the room. Left: the sidebar's buttons when it is
         // closed; right: the three actions.
         let left = if self.sidebar_open { 18. } else { theme::TRAFFIC_LIGHTS_W + 4. + 28. + 4. + 28. + 25. };
-        let room = pane_w - left - crate::ui::header_right_inset() - 3. * HEADER_ACTIONS_H - 8. - 16.;
+        let room = pane_w - left - crate::ui::header_right_inset() - 4. * HEADER_ACTIONS_H - 12. - 16.;
         if room < 360. && !crumbs.is_empty() {
             let path: Vec<&str> = std::iter::once(start.as_str()).chain(chain.iter().map(|c| c.1.as_str())).collect();
             crumbs = vec![
@@ -1877,12 +1877,12 @@ impl Workspace {
                     )),
             )
             .child(div().flex_1().min_w(px(16.)))
-            .children(self.render_feishu_status_pill(cx).map(|p| div().mr(px(6.)).flex_none().child(p)))
             .child(
                 div().gap(px(4.))
                     .h(px(HEADER_ACTIONS_H)).flex_none()
                     .flex()
                     .items_center()
+                    .child(self.render_feishu_header_button(cx))
                     .when(self.current.is_some(), |d| {
                         d.child(
                             // No tooltip while its dropdown is open; the menu hangs
@@ -1898,6 +1898,7 @@ impl Workspace {
                                     cx.stop_propagation();
                                     w.doc_menu = !doc_open;
                                     w.doc_sub = None;
+                                    w.feishu.status_menu = false;
                                     cx.notify();
                                 })),
                         )

@@ -242,7 +242,7 @@ impl Workspace {
                     })),
             ))
             .when(can_feishu, |d| d.child(
-                menu_item("dm-feishu", "globe", crate::settings::tr("飞书同步", "Feishu sync"), true, sub == Some(DocSub::Feishu))
+                menu_item("dm-feishu", "feishu", crate::settings::tr("飞书同步", "Feishu sync"), true, sub == Some(DocSub::Feishu))
                     .on_hover(hover_sub(Some(DocSub::Feishu))),
             ))
             .child(divider())

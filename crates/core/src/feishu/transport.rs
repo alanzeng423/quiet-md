@@ -298,6 +298,20 @@ pub(crate) fn resolve_windows_bin_in_dirs(dirs: &[PathBuf]) -> Option<PathBuf> {
         }
         let exe = dir.join("lark-cli.exe");
         if exe.is_file() {
+            // Scoop puts a wrapper `lark-cli.exe` alongside `lark-cli.shim`.
+            // Launching Scoop's shim under `CREATE_NO_WINDOW` from a GUI app can
+            // fail with "Shim: Could not create process"; unwrap directly to the
+            // real target executable (and skip stale/broken shims).
+            let shim = dir.join("lark-cli.shim");
+            if shim.is_file()
+                && let Ok(bytes) = std::fs::read(&shim)
+            {
+                match extract_target_from_scoop_shim(&String::from_utf8_lossy(&bytes)) {
+                    ScoopShimTarget::Direct(target) if target.is_file() => return Some(target),
+                    ScoopShimTarget::Direct(_) => continue,
+                    ScoopShimTarget::KeepShim => return Some(exe),
+                }
+            }
             return Some(exe);
         }
         let npm_native = dir.join("node_modules").join("@larksuite").join("cli").join("bin").join("lark-cli.exe");
@@ -317,6 +331,36 @@ pub(crate) fn resolve_windows_bin_in_dirs(dirs: &[PathBuf]) -> Option<PathBuf> {
         }
     }
     cmd_fallback
+}
+
+#[cfg(all(not(target_family = "wasm"), any(target_os = "windows", test)))]
+enum ScoopShimTarget {
+    Direct(PathBuf),
+    KeepShim,
+}
+
+#[cfg(all(not(target_family = "wasm"), any(target_os = "windows", test)))]
+fn extract_target_from_scoop_shim(content: &str) -> ScoopShimTarget {
+    let mut path_val: Option<String> = None;
+    let mut has_args = false;
+    for raw in content.lines() {
+        let line = raw.trim();
+        let Some((k, v)) = line.split_once('=') else { continue };
+        let key = k.trim();
+        let val = v.trim().trim_matches('"').trim_matches('\'').trim();
+        if key.eq_ignore_ascii_case("path") && !val.is_empty() {
+            path_val = Some(val.to_string());
+        } else if key.eq_ignore_ascii_case("args") && !val.is_empty() {
+            has_args = true;
+        }
+    }
+    if has_args {
+        return ScoopShimTarget::KeepShim;
+    }
+    match path_val {
+        Some(p) => ScoopShimTarget::Direct(PathBuf::from(p)),
+        None => ScoopShimTarget::KeepShim,
+    }
 }
 
 #[cfg(all(not(target_family = "wasm"), any(target_os = "windows", test)))]

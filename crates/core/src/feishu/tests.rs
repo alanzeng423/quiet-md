@@ -467,7 +467,18 @@ fn windows_bin_resolution_prefers_native_exe_over_cmd_shim() {
     std::fs::create_dir_all(&scoop_dir).unwrap();
     let direct_exe = scoop_dir.join("lark-cli.exe");
     std::fs::write(&direct_exe, b"MZ").unwrap();
-    assert_eq!(transport::resolve_windows_bin_in_dirs(&[scoop_dir, npm_dir]), Some(direct_exe));
+    assert_eq!(transport::resolve_windows_bin_in_dirs(&[scoop_dir.clone(), npm_dir.clone()]), Some(direct_exe));
+
+    // Case 5: Scoop shim unwraps directly to the real target binary, and broken shims are skipped.
+    let real_app_exe = tmp.join("scoop-apps/lark-cli/current/lark-cli.exe");
+    std::fs::create_dir_all(real_app_exe.parent().unwrap()).unwrap();
+    std::fs::write(&real_app_exe, b"MZ").unwrap();
+    std::fs::write(scoop_dir.join("lark-cli.shim"), format!("path = \"{}\"\r\n", real_app_exe.display())).unwrap();
+    assert_eq!(transport::resolve_windows_bin_in_dirs(&[scoop_dir.clone(), npm_dir.clone()]), Some(real_app_exe));
+
+    let missing_exe = tmp.join("scoop-apps/lark-cli/missing/lark-cli.exe");
+    std::fs::write(scoop_dir.join("lark-cli.shim"), format!("path = \"{}\"\r\n", missing_exe.display())).unwrap();
+    assert_eq!(transport::resolve_windows_bin_in_dirs(&[scoop_dir, npm_dir.clone()]), Some(npm_dir.join("node_modules/@larksuite/cli/bin/lark-cli.exe")));
 
     let _ = std::fs::remove_dir_all(&tmp);
 }

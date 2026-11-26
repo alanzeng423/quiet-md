@@ -590,9 +590,15 @@ impl Workspace {
         let folder = e.meta.folder.is_some() && note.is_none();
         let child = key == "doc" && self.takes_children(&e.id);
         let lib_batch = self.batch.is_some() && key == "doc";
+        let target_doc = note.unwrap_or(&e.id);
         let float = key == "doc" && !lib_batch && self.rename.as_ref().is_none_or(|r| r.id != e.id);
         let menu_open = self.row_menu.as_ref().is_some_and(|m| m.id == e.id && !m.batch && m.pos.x < px(0.)) || (folder && self.create_menu.as_ref().is_some_and(|(p, _)| p.as_deref() == Some(e.id.as_str())));
-        let give = if float { (if folder { 74. } else if child { 52. } else { 28. }) * if menu_open { 1. } else { self.folder_drag.reveal(&e.id) } } else { 0. };
+        let hover_reveal = if float { if menu_open { 1. } else { self.folder_drag.reveal(&e.id) } } else { 0. };
+        let feishu_linked = !folder && self.rename.as_ref().is_none_or(|r| r.id != e.id) && self.feishu.links.contains_key(target_doc);
+        let give = if float {
+            let base = (if folder { 74. } else if child { 52. } else { 28. }) * hover_reveal;
+            if feishu_linked { base.max(22.) } else { base }
+        } else { 0. };
         let selected = (self.view == View::Doc && (self.current.as_deref() == Some(e.id.as_str()) || (note.is_some() && self.current.as_deref() == note))) || (self.view == View::Folder && self.folder_current.as_deref() == Some(e.id.as_str()));
         let renaming = self.rename.as_ref().filter(|r| r.id == e.id).map(|r| r.field.clone());
         let title = match renaming {
@@ -712,9 +718,13 @@ impl Workspace {
                 })
             })
             .child(title)
-            .when(!renaming && !folder, |d| {
-                let target = note.unwrap_or(&e.id);
-                d.children(self.render_feishu_sidebar_mark(target))
+            .when(feishu_linked && float && hover_reveal < 0.99, |d| {
+                d.children(self.render_feishu_sidebar_mark(target_doc).map(|mark| {
+                    div().absolute().top_0().bottom_0().right(px(6.)).flex().items_center().opacity(1. - hover_reveal).child(mark)
+                }))
+            })
+            .when(feishu_linked && !float, |d| {
+                d.children(self.render_feishu_sidebar_mark(target_doc).map(|mark| div().ml(px(4.)).mr(px(2.)).flex_none().flex().items_center().child(mark)))
             })
             // A folder's "…", "new folder" and "+" sit in the same columns as the header's
             // 批量操作, 新建文件夹 and 新建文档.

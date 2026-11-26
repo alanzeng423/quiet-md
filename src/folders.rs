@@ -181,7 +181,7 @@ impl Workspace {
                 .when(crate::DATATABLE, |d| d.child(row("create-table", "datatable", crate::settings::text("数据表")).on_click(cx.listener(move |w, _, window, cx| w.create_table(table_parent.clone(), window, cx)))))
                 .child(row("create-folder", "folder", tr("文件夹", "Folder")).on_click(cx.listener(move |w, _, window, cx| w.new_folder(folder_parent.clone(), window, cx))))
                 .child(crate::design::MenuSeparator::new())
-                .child(crate::design::MenuItem::new("create-feishu").icon("globe").label(tr("从飞书链接导入…", "Import from Feishu…"))
+                .child(row("create-feishu", "feishu", tr("从飞书链接导入…", "Import from Feishu…"))
                     .on_click(cx.listener(move |w, _, window, cx| w.open_feishu_import(feishu_parent.clone(), window, cx))))
         )).with_priority(3).into_any_element())
     }

@@ -558,7 +558,7 @@ impl Workspace {
                 .child(item("import-md", "doc-md", crate::settings::tr("导入 Markdown 文件…", "Import Markdown Files…"), ImportKind::Markdown))
                 .child(item("import-folder", "folder", crate::settings::tr("导入文件夹…", "Import Folder…"), ImportKind::Folder))
                 .child(item("import-xml", "doc", crate::settings::tr("导入 DocxXML…", "Import DocxXML…"), ImportKind::DocxXml))
-                .child(item("import-feishu", "globe", crate::settings::tr("从飞书链接导入…", "Import from Feishu link…"), ImportKind::Feishu))
+                .child(item("import-feishu", "feishu", crate::settings::tr("从飞书链接导入…", "Import from Feishu link…"), ImportKind::Feishu))
                 .when(crate::DATATABLE, |d| d.child(item("import-csv", "datatable", crate::settings::tr("从 CSV 新建数据表…", "New Data Table from CSV…"), ImportKind::Csv))),
         )).with_priority(3).into_any_element())
     }

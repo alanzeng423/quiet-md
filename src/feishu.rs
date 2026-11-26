@@ -994,90 +994,33 @@ impl Workspace {
         cx.notify();
     }
 
-    // ---------------------------------------------------------------- UI: top bar status pill
+    // ---------------------------------------------------------------- UI: top bar button & status
 
-    /// Clickable real-time sync status pill placed in the document header bar.
-    pub(crate) fn render_feishu_status_pill(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let id = self.current.as_deref()?;
-        let link = self.feishu.links.get(id)?;
-        let live = self.feishu.live_of(id);
+    /// Feishu sync button placed in the document header bar beside `…`, search and `+`.
+    /// Shows live sync status when the open document is linked, or the Feishu icon button
+    /// to open the sync menu / import dialog otherwise.
+    pub(crate) fn render_feishu_header_button(&self, cx: &mut Context<Self>) -> AnyElement {
         let open = self.feishu.status_menu;
         let record = self.feishu.status_bounds.clone();
+        let can_feishu_doc = self.current.as_deref().filter(|_| {
+            self.editor.as_ref().is_some_and(|e| {
+                let e = e.read(cx);
+                !e.board_file && !e.table_file && !e.markdown
+            })
+        });
 
-        let (dot_color, label_text, tip_text): (Hsla, String, String) = if link.has_conflict() {
-            (
-                theme::c(craft::O400),
-                crate::localized_format!("飞书冲突 ({})", "Conflict ({})", link.conflict_count),
-                tr("飞书云端与本地存在冲突，点击处理", "Conflict between local and Feishu cloud; click to resolve").into(),
-            )
-        } else if let Some(reason) = link.paused_reason.as_deref().and_then(|r| r.strip_prefix("blocker:")) {
-            (
-                theme::c(craft::O400),
-                tr("飞书 · 未支持块", "Feishu · Blocked").into(),
-                reason.to_string(),
-            )
-        } else {
-            match &live {
-                LiveStatus::Syncing => (
-                    Theme::primary_500(),
-                    tr("飞书 · 同步中…", "Feishu · Syncing…").into(),
-                    tr("正在与飞书云文档同步", "Syncing with Feishu cloud document").into(),
-                ),
-                LiveStatus::PendingPush => (
-                    theme::c(craft::O400),
-                    tr("飞书 · 待推送", "Feishu · Pending").into(),
-                    tr("本地有改动，停笔后将自动同步到飞书", "Local changes queued for automatic push to Feishu").into(),
-                ),
-                LiveStatus::Offline(err) => (
-                    color::destructive(),
-                    tr("飞书 · 离线", "Feishu · Offline").into(),
-                    err.clone(),
-                ),
-                LiveStatus::Error(err) => (
-                    color::destructive(),
-                    tr("飞书 · 同步出错", "Feishu · Error").into(),
-                    err.clone(),
-                ),
-                LiveStatus::Synced if !link.auto_sync => (
-                    color::muted_foreground(),
-                    tr("飞书 · 已暂停", "Feishu · Paused").into(),
-                    tr("已暂停实时同步，点击手动同步或恢复", "Real-time sync paused; click to manage").into(),
-                ),
-                LiveStatus::Synced => {
-                    let when = if link.synced > 0 { hhmm(link.synced) } else { String::new() };
-                    let tip = if link.revision > 0 && !when.is_empty() {
-                        crate::localized_format!("实时双向同步中 · rev {} · {} 同步", "Real-time sync on · rev {} · synced {}", link.revision, when)
-                    } else {
-                        tr("已关联飞书文档，点击管理同步", "Linked to Feishu; click to manage sync").into()
-                    };
-                    (crate::design::chip::colors(1).1, tr("飞书 · 已同步", "Feishu · Synced").into(), tip)
-                }
-            }
+        let Some(id) = can_feishu_doc else {
+            return crate::ui::header_icon("doc-feishu", "feishu")
+                .tip(tr("从飞书链接导入…", "Import from Feishu…"), None)
+                .on_click(cx.listener(|w, _, window, cx| w.open_feishu_import(w.creation_parent(), window, cx)))
+                .into_any_element();
         };
 
-        Some(
-            div()
-                .id("feishu-status-pill")
-                .no_drag()
+        let Some(link) = self.feishu.links.get(id) else {
+            return crate::ui::header_icon("doc-feishu", "feishu")
                 .relative()
-                .h(px(26.))
-                .px(px(9.))
-                .flex_none()
-                .flex()
-                .items_center()
-                .gap(px(6.))
-                .rounded(px(geo().badge_r))
-                .border_1()
-                .border_color(if open { color::ring() } else { color::border() })
-                .bg(if open { color::accent() } else { color::secondary() })
-                .hover(|s| s.bg(color::accent()))
-                .cursor_pointer()
-                .text_size(px(12.))
-                .line_height(px(16.))
-                .text_color(color::foreground())
-                .when(!open, |d| d.tip(&tip_text, None))
-                .child(div().size(px(7.)).rounded(px(99.)).flex_none().bg(dot_color))
-                .child(div().whitespace_nowrap().child(label_text))
+                .selected(open)
+                .when(!open, |d| d.tip(tr("飞书同步", "Feishu sync"), None))
                 .child(canvas(move |b, _, _| record.set(Some(b)), |_, _, _, _| {}).absolute().inset_0())
                 .on_mouse_down(MouseButton::Left, cx.listener(move |w, _, _, cx| {
                     cx.stop_propagation();
@@ -1089,27 +1032,121 @@ impl Workspace {
                     }
                     cx.notify();
                 }))
-                .into_any_element(),
-        )
+                .into_any_element();
+        };
+
+        let live = self.feishu.live_of(id);
+        let (dot_color, icon_color, label_text, tip_text): (Hsla, Hsla, String, String) = if link.has_conflict() {
+            (
+                theme::c(craft::O400),
+                theme::c(craft::O400),
+                crate::localized_format!("冲突 ({})", "Conflict ({})", link.conflict_count),
+                tr("飞书云端与本地存在冲突，点击处理", "Conflict between local and Feishu cloud; click to resolve").into(),
+            )
+        } else if let Some(reason) = link.paused_reason.as_deref().and_then(|r| r.strip_prefix("blocker:")) {
+            (
+                theme::c(craft::O400),
+                theme::c(craft::O400),
+                tr("未支持块", "Blocked").into(),
+                reason.to_string(),
+            )
+        } else {
+            match &live {
+                LiveStatus::Syncing => (
+                    Theme::primary_500(),
+                    Theme::primary_500(),
+                    tr("同步中…", "Syncing…").into(),
+                    tr("正在与飞书云文档同步", "Syncing with Feishu cloud document").into(),
+                ),
+                LiveStatus::PendingPush => (
+                    theme::c(craft::O400),
+                    Theme::primary_500(),
+                    tr("待推送", "Pending").into(),
+                    tr("本地有改动，停笔后将自动同步到飞书", "Local changes queued for automatic push to Feishu").into(),
+                ),
+                LiveStatus::Offline(err) => (
+                    color::destructive(),
+                    color::destructive(),
+                    tr("离线", "Offline").into(),
+                    err.clone(),
+                ),
+                LiveStatus::Error(err) => (
+                    color::destructive(),
+                    color::destructive(),
+                    tr("同步出错", "Error").into(),
+                    err.clone(),
+                ),
+                LiveStatus::Synced if !link.auto_sync => (
+                    color::muted_foreground(),
+                    Theme::icon(),
+                    tr("已暂停", "Paused").into(),
+                    tr("已暂停实时同步，点击手动同步或恢复", "Real-time sync paused; click to manage").into(),
+                ),
+                LiveStatus::Synced => {
+                    let when = if link.synced > 0 { hhmm(link.synced) } else { String::new() };
+                    let tip = if link.revision > 0 && !when.is_empty() {
+                        crate::localized_format!("飞书实时双向同步 · rev {} · {} 同步", "Feishu real-time sync · rev {} · synced {}", link.revision, when)
+                    } else {
+                        tr("已关联飞书文档，点击管理同步", "Linked to Feishu; click to manage sync").into()
+                    };
+                    (crate::design::chip::colors(1).1, Theme::primary_500(), tr("已同步", "Synced").into(), tip)
+                }
+            }
+        };
+
+        div()
+            .id("feishu-status-pill")
+            .no_drag()
+            .relative()
+            .h(px(crate::app::HEADER_ACTIONS_H))
+            .px(px(9.))
+            .flex_none()
+            .flex()
+            .items_center()
+            .gap(px(5.))
+            .rounded(px(geo().button_r))
+            .bg(if open { color::accent() } else { transparent_black() })
+            .hover(|s| s.bg(color::accent()))
+            .cursor_pointer()
+            .text_size(px(12.))
+            .line_height(px(16.))
+            .text_color(color::foreground())
+            .when(!open, |d| d.tip(&tip_text, None))
+            .child(icon("feishu", 15., icon_color))
+            .child(div().size(px(6.)).rounded(px(99.)).flex_none().bg(dot_color))
+            .child(div().whitespace_nowrap().child(label_text))
+            .child(canvas(move |b, _, _| record.set(Some(b)), |_, _, _, _| {}).absolute().inset_0())
+            .on_mouse_down(MouseButton::Left, cx.listener(move |w, _, _, cx| {
+                cx.stop_propagation();
+                w.feishu.status_menu = !open;
+                if w.feishu.status_menu {
+                    w.doc_menu = false;
+                    w.doc_sub = None;
+                    w.refresh_feishu_auth(cx);
+                }
+                cx.notify();
+            }))
+            .into_any_element()
     }
 
-    /// Popover hanging below the header status pill.
+    /// Popover hanging below the header Feishu button (linked or unlinked).
     pub(crate) fn render_feishu_status_menu(&self, window: &Window, cx: &mut Context<Self>) -> Option<AnyElement> {
         if !self.feishu.status_menu {
             return None;
         }
         let id = self.current.clone()?;
-        let link = self.feishu.links.get(&id)?;
-        let busy = self.feishu.is_busy(&id);
         let vw = window.viewport_size().width;
         let anchor = self.feishu.status_bounds.get();
         let right = anchor.map_or(vw - px(140.), |b| b.right());
         let top = anchor.map_or(px(48.), |b| b.bottom() + px(6.));
-        let menu = self.feishu_linked_popover("feishu-status-popover", &id, link, busy, cx)
-            .on_mouse_down_out(cx.listener(|w, _, _, cx| {
-                w.feishu.status_menu = false;
-                cx.notify();
-            }));
+        let menu = match self.feishu.links.get(&id) {
+            Some(link) => self.feishu_linked_popover("feishu-status-popover", &id, link, self.feishu.is_busy(&id), cx),
+            None => self.feishu_unlinked_popover("feishu-status-popover", &id, cx),
+        }
+        .on_mouse_down_out(cx.listener(|w, _, _, cx| {
+            w.feishu.status_menu = false;
+            cx.notify();
+        }));
         Some(
             deferred(anchored().anchor(Anchor::TopRight).position(point(right, top)).snap_to_window_with_margin(px(8.)).child(menu))
                 .with_priority(3)
@@ -1252,7 +1289,7 @@ impl Workspace {
             .when(link.open_url().is_some(), |d| {
                 d.child(
                     MenuItem::new("fs-open-web")
-                        .icon("globe")
+                        .icon("feishu")
                         .label(tr("在飞书中打开", "Open in Feishu"))
                         .on_click(cx.listener(move |w, _, _, cx| w.feishu_open_in_browser(&open_id, cx))),
                 )
@@ -1277,20 +1314,16 @@ impl Workspace {
         menu
     }
 
-    /// Submenu shown under `…` → `飞书同步`.
-    pub(crate) fn render_feishu_submenu(&self, id: &str, cx: &mut Context<Self>) -> Popover {
-        if let Some(link) = self.feishu.links.get(id) {
-            return self.feishu_linked_popover("dm-feishu-menu", id, link, self.feishu.is_busy(id), cx);
-        }
+    fn feishu_unlinked_popover(&self, pop_id: &'static str, id: &str, cx: &mut Context<Self>) -> Popover {
         let link_id = id.to_string();
         let create_id = id.to_string();
         let parent = self.entries.iter().find(|e| e.id == id).and_then(|e| e.meta.parent.clone());
-        Popover::new("dm-feishu-menu")
+        Popover::new(pop_id)
             .menu()
             .min_w(px(230.))
             .child(
                 MenuItem::new("fs-import-new")
-                    .icon("import")
+                    .icon("feishu")
                     .label(tr("从飞书链接导入新文档…", "Import from Feishu link…"))
                     .on_click(cx.listener(move |w, _, window, cx| w.open_feishu_import(parent.clone(), window, cx))),
             )
@@ -1306,6 +1339,14 @@ impl Workspace {
                     .label(tr("上传为新的飞书文档", "Upload as new Feishu doc"))
                     .on_click(cx.listener(move |w, _, window, cx| w.feishu_sync(&create_id, SyncMode::Create, false, window, cx))),
             )
+    }
+
+    /// Submenu shown under `…` → `飞书同步`.
+    pub(crate) fn render_feishu_submenu(&self, id: &str, cx: &mut Context<Self>) -> Popover {
+        if let Some(link) = self.feishu.links.get(id) {
+            return self.feishu_linked_popover("dm-feishu-menu", id, link, self.feishu.is_busy(id), cx);
+        }
+        self.feishu_unlinked_popover("dm-feishu-menu", id, cx)
     }
 
     // ---------------------------------------------------------------- UI: import / link dialog
@@ -1337,6 +1378,7 @@ impl Workspace {
         let cur_id = crate::settings::feishu_identity();
         let auth_note = match &self.feishu.auth {
             Some(info) if !info.installed => Some((true, tr("未检测到 lark-cli，请先运行：npm i -g @larksuite/cli && lark-cli auth login", "lark-cli not found. Install with: npm i -g @larksuite/cli && lark-cli auth login").to_string())),
+            Some(info) if !info.ready_for(cur_id) && !info.user_ready && !info.bot_ready && !info.detail.is_empty() => Some((true, info.detail.clone())),
             Some(info) if !info.ready_for(cur_id) => Some((true, tr("飞书用户身份未登录，请在终端运行：lark-cli auth login（或点击下方切换身份）", "Feishu user not logged in. Run `lark-cli auth login` (or switch identity below)").to_string())),
             Some(info) => {
                 let who = if !info.user_name.is_empty() { info.user_name.clone() } else { info.brand.clone() };
@@ -1454,7 +1496,7 @@ impl Workspace {
 
     // ---------------------------------------------------------------- UI: sidebar badge
 
-    /// Tiny subtle cloud-sync indicator shown on Feishu-linked sidebar rows.
+    /// Tiny subtle Feishu sync indicator shown on Feishu-linked sidebar rows.
     pub(crate) fn render_feishu_sidebar_mark(&self, id: &str) -> Option<AnyElement> {
         let link = self.feishu.links.get(id)?;
         let tint = if link.has_conflict() || link.paused_reason.is_some() {
@@ -1466,6 +1508,6 @@ impl Workspace {
         } else {
             Theme::icon()
         };
-        Some(div().ml(px(4.)).flex_none().flex().items_center().child(icon("globe", 12., tint)).into_any_element())
+        Some(icon("feishu", 13., tint).into_any_element())
     }
 }
